@@ -1,0 +1,27 @@
+T_base_cam:
+  description: 'camera (Photoneo CameraSpace) -> robot base (link_base): p_base[m] = matrix @ p_cam[m]. Independent of the
+    tool: TCP = flange * robot.tcp_offset is applied when moving'
+  matrix:
+  - [-0.00169203, -0.99945118, 0.03308287, 0.25562417]
+  - [-0.97936149, 0.00834258, 0.20194425, -0.25696641]
+  - [-0.20210942, -0.0320584, -0.97883811, 0.71477754]
+  - [0.0, 0.0, 0.0, 1.0]
+  translation: [0.255624, -0.256966, 0.714778]
+  quaternion_xyzw: [-0.70157029, 0.70513699, 0.06023151, 0.08338532]
+  pose_xyz_rpy_deg: [0.255624, -0.256966, 0.714778, -178.124149, 11.660339, -90.098989]
+method: touch/board_model
+session: /home/joon/Projects/xarm_lite6/cam2robot_pos_calibration/data/touch_20261027_164140
+calibration_tool_offset: [0.0, 0.0, 0.106, 0.0, 0.0, 0.0]
+fit_rms_m: 0.0010898623608623604
+errors_m: {'[1,1]': 0.0009779466112526092, '[9,1]': 0.001444543133020491, '[5,3]': 0.0014285046877022015, '[9,6]': 0.00040979239759515447,
+  '[1,6]': 0.0008395390182639516}
+T_base_board:
+- [0.0027268503495410236, 0.9996062197572908, 0.02792793779909415, 0.12064017577054009]
+- [0.9999778551068428, -0.0025561926582172495, -0.00614452398578269, -0.3010829775683052]
+- [-0.006070715204074855, 0.027944074535273887, -0.9995910539391987, 0.009284016822016598]
+- [0.0, 0.0, 0.0, 1.0]
+board_shots_spread: {m: 6.257954435112031e-06, deg: 0.001545680113962659}
+config: /home/joon/Projects/xarm_lite6/cam2robot_pos_calibration/config.yaml
+created: '2026-10-27T16:45:08'
+ros_static_tf: ros2 run tf2_ros static_transform_publisher --x 0.255624 --y -0.256966 --z 0.714778 --qx -0.70157029 --qy 0.70513699
+  --qz 0.06023151 --qw 0.08338532 --frame-id link_base --child-frame-id photoneo_camera

@@ -1,0 +1,7 @@
+harvesters==1.4.3
+genicam==1.4.0
+numpy
+scipy
+opencv-python
+PyYAML
+xarm-python-sdk

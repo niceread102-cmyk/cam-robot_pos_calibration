@@ -1,0 +1,122 @@
+# cam2robot_pos_calibration: 위에 고정된 Photoneo(eye-to-hand) -> Lite6 base 변환(T_base_cam) 캘리브레이션 설정.
+# 단위: 길이 m, 각도 deg. (xArm SDK / Photoneo 는 mm 를 쓰지만 robot_lite6.py / camera_photoneo.py 에서만 변환합니다.)
+# 자세 [x y z roll pitch yaw] = xArm RPY (고정축 X->Y->Z, R = Rz*Ry*Rx).
+# 모든 스크립트가 이 파일을 읽습니다. 다른 파일: --config my.yaml / 값 하나만 바꾸기: robot.speed=0.03 board.square_size=0.0498
+#
+# 방법 두 가지 (README.md):
+#   touch   : 체커보드를 작업대에 고정 -> 카메라로 보드 자세 측정 -> TCP 끝으로 코너 몇 개를 찍음  (touch_collect / touch_solve)
+#   handeye : 작은 체커보드를 flange 에 고정 -> 여러 자세에서 촬영 -> AX=XB                    (handeye_collect / handeye_solve)
+
+robot:
+  ip: 192.168.1.150             # Lite6 컨트롤러 IP
+  # 지금 달린 툴: flange(link_eef) -> TCP(툴 끝점) [x y z (m) roll pitch yaw (deg)]. 가변:
+  # 툴을 바꾸면 이 값만 바꾸면 됨 (예: [0,0,0.05,0,0,0] 또는 실행 시 robot.tcp_offset="[0,0,0.05,0,0,0]").
+  # T_base_cam(카메라 -> base) 은 툴과 무관해서 다시 캘리브레이션할 필요 없음. 이동 목표는 항상
+  # TCP 목표 -> flange 목표 = T_tcp * inv(tcp_offset) 로 코드가 계산 (lite6_control motion.py 와 같은 방식).
+  tcp_offset: [0.0, 0.0, 0.106, 0.0, 0.0, 0.0]
+  controller_tcp_offset_zero: true   # 연결 시 컨트롤러 TCP offset 을 0 (flange) 으로 설정. false 여도 컨트롤러 값을 읽어 빼므로 동작은 같음
+  speed: 0.05                   # TCP 직선 이동 속도 m/s
+  acc: 0.5                      # m/s^2
+  joint_speed: 20.0             # 관절 이동(home 복귀 등) 속도 deg/s
+  joint_acc: 200.0              # deg/s^2
+  # home = 시작 자세 / 촬영 대기 자세 (point_test.py, move_obj.py): 시작 시 이동, 끝날 때(정상 종료 / 오류 / Ctrl+C /
+  # Ctrl+Z / 터미널 닫힘) 항상 복귀. = lite6_control robot.poses.home [1.0, 0, pi/2, 0, pi/2, 1.0] rad
+  # (ee_6d.py + sequence_real_action 시작 자세), TCP(0.106) 는 base (0.123, 0.192, 0.362) m, 툴 아래 방향
+  home_joints_deg: [57.2958, 0.0, 90.0, 0.0, 90.0, 57.2958]
+  home_lift_z: 0.10             # home 으로 관절 이동하기 전, TCP z 가 이보다(m) 낮으면 먼저 수직으로 이 높이까지 올림
+  move_timeout_s: 60.0
+  settle_s: 1.0                 # 이동 완료 후 촬영 전 대기 (진동 감쇠)
+
+camera:                         # Photoneo, GigE-V (harvesters / GenTL)
+  serial: "PAJ-042"             # 장치 serial number (PhoXi Control 의 Device ID)
+  gentl_producer: null          # null = GENICAM_GENTL64_PATH 에서 libmvGenTLProducer.so 를 찾음
+  load_default_user_set: true   # 시작 시 Default user set 로드 후 아래 features 적용
+  features: {}                  # 추가 GenICam feature (적용 순서대로), 예: {LEDPower: 4095, ShutterMultiplier: 2}
+                                # TriggerMode / Component / Scan3dOutputMode / CoordinateSpace 는 코드가 고정 설정
+  texture_component: Intensity  # 코너 검출에 쓸 2D 이미지 (Range 와 같은 해상도여야 함)
+  fetch_timeout_s: 10.0
+  texture_percentile: [1.0, 99.5]   # 텍스처 -> 8bit 변환 시 밝기 정규화 구간 (%)
+
+board:                          # 흑백 체커보드
+  squares: [12, 9]              # 칸 수 [가로, 세로] -> 내부 코너 = 칸 수 - 1 = 11 x 8 (짝/홀이 섞여 있어 원점이 뒤집히지 않음)
+  square_size: 0.040            # 칸 한 변 m (자로 실측한 값을 넣을 것)
+  detector: sb                  # sb = findChessboardCornersSB (정밀/강건) | classic = findChessboardCorners + cornerSubPix
+  # 보드 자세 = 코너 픽셀 위치의 Photoneo 3D 점(카메라 좌표) 과 보드 모델 점의 rigid fit (intrinsic 불필요)
+  # 보드 좌표계: 원점 = 코너 [0,0] = 검은색 모서리 칸에 붙은 내부 코너, x = 코너 열 증가 방향(긴 쪽), y = 행 증가 방향,
+  # z = x × y (보드 안쪽, 카메라 반대 방향). 어느 코너가 [0,0] 인지는 test_camera.py 가 저장하는 이미지에 표시됩니다.
+  corner_window_px: 3           # 코너 주변 (2r+1)^2 픽셀의 유효 3D 점으로 국소 평면 보간
+  corner_min_points: 6          # 위 창 안 유효 점이 이보다 적으면 그 코너는 무효
+  min_valid_ratio: 0.8          # 유효 코너 비율이 이보다 낮으면 촬영 실패
+  max_fit_rms: 0.0015           # rigid fit RMS (m) 가 이보다 크면 촬영 실패
+
+touch:                          # touch_collect / touch_solve
+  camera_shots: 5               # 보드 촬영 횟수 (평균)
+  # TCP 끝으로 찍을 내부 코너 [열, 행] (0 부터, 열 < 11, 행 < 8). 로봇이 닿는 코너만, 최소 3 개 (넓게 퍼질수록 정확).
+  corners: [[1, 1], [9, 1], [5, 3], [9, 6], [1, 6]]
+  recheck_camera: true          # touch 를 다 찍은 뒤 보드를 다시 촬영해 보드가 밀렸는지 확인
+  max_board_shift: 0.0005       # 위 재촬영에서 보드 원점이 이보다(m) 움직였으면 경고
+  # board_model   : TCP 점 <-> 보드 모델 점(칸 크기 x 인덱스) fit -> T_base_board, 카메라는 전체 코너 fit 의 T_cam_board 사용
+  # camera_points : TCP 점 <-> 카메라가 측정한 같은 코너의 3D 점 직접 fit (칸 크기 오차의 영향 없음)
+  solve_with: board_model
+  tool_offset: null             # touch_solve 가 끝점 계산에 쓸, 터치할 때 달려 있던 툴 [m, deg]. null = 수집 당시 robot.tcp_offset (세션에 저장됨)
+  max_fit_rms: 0.002            # touch fit RMS (m) 가 이보다 크면 경고
+
+handeye:                        # handeye_collect / handeye_solve (보드를 flange 에 고정할 때)
+  mode: generate                # generate | list | manual (manual = 로봇을 손으로 옮기며 Enter 로 촬영, teach mode)
+  generate:                     # center 자세 x (position_offsets) x (orientation_offsets) 조합
+    center: [0.25, 0.0, 0.25, 180.0, 0.0, 0.0]   # 보드가 카메라 시야 중앙에 오는 TCP 자세 [m, deg]
+    position_offsets:           # base 좌표계 [dx dy dz] m
+      - [0, 0, 0]
+      - [0.06, 0, 0]
+      - [-0.06, 0, 0]
+      - [0, 0.06, 0]
+      - [0, -0.06, 0]
+      - [0, 0, 0.05]
+    orientation_offsets:        # TCP 좌표계 기준 추가 회전 [rx ry rz] deg (xyz 고정축). 서로 다른 축의 회전을 섞을 것
+      - [0, 0, 0]
+      - [12, 0, 0]
+      - [-12, 0, 0]
+      - [0, 12, 0]
+      - [0, -12, 0]
+      - [8, 8, 30]
+      - [-8, -8, -30]
+  list: []                      # mode: list 일 때 TCP 자세 목록 [[x y z (m) roll pitch yaw (deg)], ...]
+  return_to_start: true         # generate/list: 끝나면 첫 자세로 복귀
+  methods: [TSAI, PARK, HORAUD, ANDREFF, DANIILIDIS]   # 모두 풀고 코너 오차가 가장 작은 것을 채택
+  outlier_err: 0.003            # 평균 코너 오차(m)가 이보다 큰 샘플은 하나씩 빼고 다시 풂 (null = 끔)
+  min_samples: 8
+  min_rotation_spread_deg: 10.0 # flange 자세들 간 최대 상대 회전이 이보다 작으면 경고
+
+calib_test:                     # calib_test.py: 카메라가 측정한 보드 코너로 결과(T_base_cam)를 로봇에서 확인
+  corners: [[1, 1], [9, 1], [5, 3], [9, 6], [1, 6]]   # touch.corners 와 같게 두면 수집한 점 그대로 확인
+  board_shots: 3                # 보드 촬영 횟수 (평균)
+  hover: 0.03                   # 코너 위 이 높이(m, 보드 법선 방향)로 TCP 이동 (캘리브레이션 오차로 보드에 부딪히지 않게 여유)
+  tcp_rpy: [180.0, 0.0, 0.0]    # 이동 시 TCP 자세 (base 기준, 툴이 아래를 향함)
+
+point_test:                     # point_test.py: 보드 없이, 카메라 이미지에서 클릭한 점(테이프 위 X 표시 등) 위로 TCP 이동해 확인
+  shots: 3                      # 촬영 횟수 (point cloud 평균)
+  hover: 0.03                   # 점 위 이 높이(m, base z 방향)로 TCP 이동
+  tcp_rpy: [180.0, 0.0, 0.0]    # 이동 시 TCP 자세 (base 기준, 툴이 아래를 향함)
+                                # 시작 / 촬영 / 종료 자세 = robot.home_joints_deg
+
+move_obj:                       # move_obj.py: 카메라 좌표계의 물체 자세(터미널 입력 x y z [roll pitch yaw]) -> base -> TCP 이동
+  euler: xyz                    # 입력 rpy 의 회전 규약 (scipy 표기). xyz = 고정축 X->Y->Z (xArm 과 같음),
+                                # XYZ = 회전축 기준 X->Y'->Z'' (lite6_control 의 move_to / matrix_calculator 와 같음)
+  orientation: object           # rpy 를 입력했을 때 TCP 자세: object = 물체 자세 * grasp_offset | down = tcp_rpy 고정
+  tcp_rpy: [180.0, 0.0, 0.0]    # x y z 만 입력했거나 orientation: down 일 때의 TCP 자세 (base 기준)
+  grasp_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # 물체 좌표계에서 본 TCP 자세 T_obj_tcp [m, deg] (orientation: object 일 때)
+  approach: 0.05                # 먼저 목표에서 TCP -z 방향으로 이만큼(m) 떨어진 자세로 간 뒤 확인받고 접근 (0 = 바로 이동)
+
+safety:                         # 이 범위를 벗어나는 TCP 목표는 이동하지 않고 건너뜀 (base 좌표계, m). teach mode 에는 적용 안 됨
+  workspace_x: [0.05, 0.45]
+  workspace_y: [-0.45, 0.45]
+  workspace_z: [0.01, 0.60]
+  max_reach: 0.44               # base 원점에서 TCP 까지 거리
+
+output:
+  data_dir: data                # collect: data/<method>_<YYYYmmdd_HHMMSS>/ 에 samples.json + 이미지 (이 파일 기준 상대경로)
+  save_range: false             # 촬영마다 point cloud(.npy, m, 수십 MB) 도 저장
+  result_file: result/T_base_cam.yaml
+  ros:                          # 결과의 static_transform_publisher 명령에 쓰는 frame 이름
+    parent_frame: link_base
+    child_frame: photoneo_camera
